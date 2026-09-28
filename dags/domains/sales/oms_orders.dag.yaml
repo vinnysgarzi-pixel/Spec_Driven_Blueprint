@@ -1,0 +1,63 @@
+# Generated from specs/sales/oms_orders.spec.yaml per AGENTS.md. Edit the spec, then regenerate.
+dag_id: sales__oms_orders
+domain: sales
+data_product: oms_orders
+owner: sales-data-eng
+spec: specs/sales/oms_orders.spec.yaml
+description: Curated current-state Oracle OMS orders and a daily revenue mart for Sales and Finance.
+schedule: "0 6 * * *"
+timezone: America/New_York
+
+steps:
+  orders_landed:
+    blueprint: goldengate_landed
+    conn_id: ${snowflake_conn_id}
+    raw_table: ${adw_db}.RAW_OMS.ORDERS
+    op_ts_column: OP_TS
+    timeout_minutes: 120
+
+  silver_orders:
+    blueprint: cdc_merge_to_silver
+    depends_on: [orders_landed]
+    conn_id: ${snowflake_conn_id}
+    source_table: ${adw_db}.RAW_OMS.ORDERS
+    target_table: ${adw_db}.SILVER_OMS.ORDERS
+    primary_key: [ORDER_ID]
+    columns: [CUSTOMER_ID, ORDER_STATUS, ORDER_TS, CURRENCY, ORDER_TOTAL, REGION_CODE]
+    op_type_column: OP_TYPE
+    op_ts_column: OP_TS
+    tiebreak_column: POS
+    lookback_minutes: 60
+
+  silver_orders_quality:
+    blueprint: quality_gate
+    depends_on: [silver_orders]
+    conn_id: ${snowflake_conn_id}
+    table: ${adw_db}.SILVER_OMS.ORDERS
+    not_null: [ORDER_ID, CUSTOMER_ID, ORDER_TS]
+    unique: [ORDER_ID]
+    accepted_values:
+      ORDER_STATUS: [NEW, PAID, SHIPPED, CANCELLED, RETURNED]
+    min_values:
+      ORDER_TOTAL: 0
+
+  gold_daily_order_revenue:
+    blueprint: sql_model
+    depends_on: [silver_orders_quality]
+    conn_id: ${snowflake_conn_id}
+    target_table: ${adw_db}.GOLD_SALES.DAILY_ORDER_REVENUE
+    sql_file: sales/daily_order_revenue.sql
+    strategy: delete_insert
+    partition_column: ORDER_DATE
+    params:
+      silver_orders: ${adw_db}.SILVER_OMS.ORDERS
+
+  gold_daily_order_revenue_quality:
+    blueprint: quality_gate
+    depends_on: [gold_daily_order_revenue]
+    conn_id: ${snowflake_conn_id}
+    table: ${adw_db}.GOLD_SALES.DAILY_ORDER_REVENUE
+    min_row_count: 0
+    not_null: [ORDER_DATE, REGION_CODE, CURRENCY]
+    min_values:
+      GROSS_REVENUE: 0

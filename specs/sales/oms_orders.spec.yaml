@@ -1,0 +1,50 @@
+# Data product spec: the only file a requesting engineer/analyst writes.
+# It describes WHAT (sources, keys, outputs, rules, SLAs) in business terms.
+# The coding agent turns it into HOW (Blueprint YAML + SQL) per AGENTS.md.
+spec_version: 1
+data_product: oms_orders
+domain: sales
+owner: sales-data-eng
+summary: >
+  Curated current-state view of Oracle OMS orders, plus a daily revenue mart
+  that Sales analytics and Finance both consume.
+
+source:
+  system: Oracle OMS
+  replication: GoldenGate -> Snowflake RAW, audit-log mode (one row per change)
+  tables:
+    - name: RAW_OMS.ORDERS
+      business_key: [ORDER_ID]
+      change_tracking:
+        operation_column: OP_TYPE      # I / U / D
+        commit_ts_column: OP_TS        # UTC
+        sequence_column: POS           # breaks ties within a commit timestamp
+      columns: [CUSTOMER_ID, ORDER_STATUS, ORDER_TS, CURRENCY, ORDER_TOTAL, REGION_CODE]
+  freshness: Fail the run if GoldenGate has not replicated through the end of the processing window within 2 hours.
+
+outputs:
+  silver:
+    - table: SILVER_OMS.ORDERS
+      description: One row per order, latest state. Orders hard-deleted in OMS are removed.
+      late_arriving_changes: tolerate up to 60 minutes
+      quality:
+        - ORDER_ID is never null and is unique
+        - CUSTOMER_ID and ORDER_TS are never null
+        - ORDER_STATUS is one of NEW, PAID, SHIPPED, CANCELLED, RETURNED
+        - ORDER_TOTAL is never negative
+
+  gold:
+    - table: GOLD_SALES.DAILY_ORDER_REVENUE
+      grain: one row per order date (from ORDER_TS, UTC) x REGION_CODE x CURRENCY
+      metrics:
+        ORDER_COUNT: number of orders placed that day, excluding CANCELLED
+        GROSS_REVENUE: sum of ORDER_TOTAL excluding CANCELLED and RETURNED orders
+        AVG_ORDER_VALUE: GROSS_REVENUE / ORDER_COUNT, 0 when there are no orders
+      quality:
+        - ORDER_DATE, REGION_CODE and CURRENCY are never null
+        - GROSS_REVENUE is never negative
+      published: true            # other domains may depend on this table
+
+schedule:
+  cadence: daily at 06:00 America/New_York, processing the previous day
+  reprocessing: re-running a day must produce the same result

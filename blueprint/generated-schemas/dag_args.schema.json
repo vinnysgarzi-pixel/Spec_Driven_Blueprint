@@ -1,0 +1,104 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "domain": {
+      "description": "Owning domain / team, e.g. sales, finance",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_$]*$",
+      "title": "Domain",
+      "type": "string"
+    },
+    "data_product": {
+      "description": "Data product this DAG maintains",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_$]*$",
+      "title": "Data Product",
+      "type": "string"
+    },
+    "owner": {
+      "description": "Owning team (Airflow owner)",
+      "title": "Owner",
+      "type": "string"
+    },
+    "spec": {
+      "type": "string",
+      "description": "Path of the spec this DAG implements",
+      "title": "Spec"
+    },
+    "description": {
+      "type": "string",
+      "title": "Description"
+    },
+    "schedule": {
+      "type": "string",
+      "description": "Cron or preset; windowed by data interval. Mutually exclusive with consumes.",
+      "title": "Schedule"
+    },
+    "timezone": {
+      "default": "UTC",
+      "title": "Timezone",
+      "type": "string"
+    },
+    "consumes": {
+      "default": [],
+      "description": "Upstream published tables; DAG runs when all of them are updated",
+      "items": {
+        "type": "string"
+      },
+      "title": "Consumes",
+      "type": "array"
+    },
+    "start_date": {
+      "default": "2026-01-01",
+      "title": "Start Date",
+      "type": "string"
+    },
+    "retries": {
+      "default": 2,
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Retries",
+      "type": "integer"
+    },
+    "retry_delay_minutes": {
+      "default": 5,
+      "minimum": 1,
+      "title": "Retry Delay Minutes",
+      "type": "integer"
+    },
+    "execution_timeout_minutes": {
+      "default": 60,
+      "minimum": 1,
+      "title": "Execution Timeout Minutes",
+      "type": "integer"
+    },
+    "tags": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "dag_id": {
+      "type": "string",
+      "description": "Unique DAG identifier"
+    },
+    "steps": {
+      "type": "object",
+      "description": "Blueprint step definitions",
+      "additionalProperties": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "steps",
+    "dag_id",
+    "domain",
+    "data_product",
+    "owner"
+  ],
+  "title": "DAG",
+  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "templateType": "dag_args"
+}

@@ -1,1 +1,7 @@
 # Astro Runtime includes the following pre-installed providers packages: https://www.astronomer.io/docs/astro/runtime-image-architecture#provider-packages
+airflow-blueprint==0.5.0
+# Newest Snowflake provider compatible with the common-sql / common-compat shipped in Runtime 3.1-12;
+# later releases pull common-sql 2.x, which breaks against this Runtime's common-compat.
+apache-airflow-providers-snowflake==6.9.1
+apache-airflow-providers-common-sql==1.30.4
+apache-airflow-providers-common-compat==1.13.0

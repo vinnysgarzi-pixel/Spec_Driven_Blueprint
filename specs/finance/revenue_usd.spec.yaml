@@ -1,0 +1,26 @@
+spec_version: 1
+data_product: revenue_usd
+domain: finance
+owner: finance-data-eng
+summary: >
+  Finance's USD-normalised view of daily order revenue, built on the Sales
+  domain's published DAILY_ORDER_REVENUE product. Finance never reads Sales'
+  raw or silver tables directly.
+
+consumes:
+  - table: GOLD_SALES.DAILY_ORDER_REVENUE     # published by domain: sales
+  - table: REF_FINANCE.FX_DAILY_RATES         # finance-owned: RATE_DATE, CURRENCY, USD_RATE
+
+outputs:
+  gold:
+    - table: GOLD_FINANCE.DAILY_REVENUE_USD
+      grain: one row per order date x region
+      window: trailing 90 days, fully rebuilt each run
+      metrics:
+        GROSS_REVENUE_USD: GROSS_REVENUE converted at that day's USD_RATE for the currency
+        ORDER_COUNT: sum of ORDER_COUNT
+      quality:
+        - every row has a USD rate (no null GROSS_REVENUE_USD)
+
+schedule:
+  cadence: whenever Sales publishes a new DAILY_ORDER_REVENUE

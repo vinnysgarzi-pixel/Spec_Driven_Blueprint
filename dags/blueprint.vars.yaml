@@ -1,0 +1,7 @@
+# Shared by every *.dag.yaml below dags/. Profile is selected by ADW_ENV (see dags/loader.py).
+profiles: [dev, prod]
+vars:
+  adw_db:
+    dev: ADW_DEV
+    prod: ADW
+  snowflake_conn_id: snowflake_adw
