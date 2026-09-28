@@ -2,6 +2,6 @@
 profiles: [dev, prod]
 vars:
   adw_db:
-    dev: SANDBOX
+    dev: DEMO
     prod: ADW
   snowflake_conn_id: snowflake

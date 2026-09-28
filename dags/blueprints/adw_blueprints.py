@@ -373,4 +373,8 @@ class SqlModel(Blueprint[SqlModelConfig]):
             sql=statements,
             params=c.params,
             outlets=[table_asset(c.target_table)],
+            # The SQL file is only referenced by an include, so without this an edit to it
+            # wouldn't change the serialized DAG: Airflow 3 wouldn't cut a new DAG version and
+            # runs would keep executing the previous bundle's SQL.
+            doc_md=f"```sql\n{(SQL_ROOT / c.sql_file).read_text()}\n```",
         )
