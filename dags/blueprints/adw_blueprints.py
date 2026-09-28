@@ -47,8 +47,22 @@ def _require(values: Any, regex: re.Pattern[str], what: str) -> Any:
             raise ValueError(f"{v!r} is not a valid {what}")
     return values
 
+# Blueprint renders this module's source as a Jinja template (the blueprint_step_code
+# field shown in the Airflow UI), so the file must not contain literal Jinja delimiters.
+# Build them at runtime instead.
+_OPEN, _CLOSE = "{" * 2, "}" * 2
+
+
+def jinja(expr: str) -> str:
+    return f"{_OPEN} {expr} {_CLOSE}"
+
+
+def jinja_include(path: str) -> str:
+    return "{" + f"% include '{path}' %" + "}"
+
+
 SQL_ROOT = Path(__file__).resolve().parents[2] / "include" / "sql"
-DEFAULT_CONN_ID = "snowflake_adw"
+DEFAULT_CONN_ID = "snowflake"
 
 
 def table_asset(fqn: str) -> Asset:
@@ -148,7 +162,7 @@ class GoldengateLanded(Blueprint[GoldenGateLandedConfig]):
             conn_id=config.conn_id,
             sql=(
                 f"SELECT MAX({config.op_ts_column}) >= "
-                "CONVERT_TIMEZONE('UTC', '{{ data_interval_end.isoformat() }}'::TIMESTAMP_TZ)::TIMESTAMP_NTZ "
+                f"CONVERT_TIMEZONE('UTC', '{jinja('data_interval_end.isoformat()')}'::TIMESTAMP_TZ)::TIMESTAMP_NTZ "
                 f"FROM {config.raw_table}"
             ),
             mode="reschedule",
@@ -199,6 +213,7 @@ class CdcMergeToSilver(Blueprint[CdcMergeConfig]):
             f"CURRENT_TIMESTAMP()::TIMESTAMP_LTZ AS _LOADED_AT FROM {c.source_table} WHERE 1 = 0"
         )
 
+        interval_end = jinja("data_interval_end.isoformat()")
         merge_sql = f"""
 MERGE INTO {c.target_table} AS t
 USING (
@@ -209,7 +224,7 @@ USING (
     WHERE {c.op_ts_column} > (
             SELECT COALESCE(DATEADD('minute', -{c.lookback_minutes}, MAX(_SRC_OP_TS)), '1900-01-01'::TIMESTAMP_NTZ)
             FROM {c.target_table})
-      AND {c.op_ts_column} <= CONVERT_TIMEZONE('UTC', '{{{{ data_interval_end.isoformat() }}}}'::TIMESTAMP_TZ)::TIMESTAMP_NTZ
+      AND {c.op_ts_column} <= CONVERT_TIMEZONE('UTC', '{interval_end}'::TIMESTAMP_TZ)::TIMESTAMP_NTZ
     QUALIFY ROW_NUMBER() OVER (PARTITION BY {', '.join(keys)} ORDER BY {order_by}) = 1
 ) AS s
 ON {' AND '.join(f't.{k} = s.{k}' for k in keys)}
@@ -321,7 +336,7 @@ class SqlModelConfig(BaseModel):
     partition_column: str | None = Field(
         default=None, description="Date/timestamp column scoping delete_insert to [data_interval_start, end)"
     )
-    params: dict[str, str] = Field(default={}, description="Values exposed to the SQL file as {{ params.<key> }}")
+    params: dict[str, str] = Field(default={}, description="Values exposed to the SQL file as params.<key>")
 
     _idents = field_validator("partition_column")(lambda v: _require(v, _IDENT_RE, "column name"))
 
@@ -337,13 +352,13 @@ class SqlModel(Blueprint[SqlModelConfig]):
 
     def render(self, config: SqlModelConfig) -> SQLExecuteQueryOperator:
         c = config
-        select = f"\n{{% include '{c.sql_file}' %}}\n"
+        select = f"\n{jinja_include(c.sql_file)}\n"
         if c.strategy == "replace":
             statements = [f"CREATE OR REPLACE TABLE {c.target_table} AS {select}"]
         else:
             window = (
-                f"{c.partition_column} >= '{{{{ data_interval_start | ds }}}}' "
-                f"AND {c.partition_column} < '{{{{ data_interval_end | ds }}}}'"
+                f"{c.partition_column} >= '{jinja('data_interval_start | ds')}' "
+                f"AND {c.partition_column} < '{jinja('data_interval_end | ds')}'"
             )
             # The hook runs non-autocommit and commits once at the end, so DELETE + INSERT
             # land atomically; the leading DDL commits on its own, which is harmless here.

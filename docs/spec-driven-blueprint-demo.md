@@ -135,7 +135,7 @@ and Finance is never triggered. The Airflow UI shows each task's resolved Bluepr
 
 ## Running it
 
-1. Create Airflow connection `snowflake_adw` (Snowflake), with a role that can read `RAW_OMS` and write `SILVER_OMS` / `GOLD_*`.
+1. Make the `snowflake` connection (Astro Environment Manager, Cosmic Energy org) available to Airflow, with a role that can read `RAW_OMS` and write `SILVER_OMS` / `GOLD_*`.
 2. Set `ADW_ENV=dev` or `prod` (default `dev`).
 3. Validate locally:
    ```bash

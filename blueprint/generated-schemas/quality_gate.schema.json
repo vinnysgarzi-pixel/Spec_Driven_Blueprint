@@ -2,7 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "conn_id": {
-      "default": "snowflake_adw",
+      "default": "snowflake",
       "title": "Conn Id",
       "type": "string"
     },

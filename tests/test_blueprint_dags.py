@@ -38,6 +38,16 @@ def test_conventions(dags):
             assert task.execution_timeout is not None, task.task_id
 
 
+def test_blueprint_ui_fields_are_valid_jinja(dags):
+    # Blueprint templates the step config and the Blueprint's source into every task;
+    # a stray Jinja delimiter there fails the task at runtime, not at parse time.
+    for dag in dags.values():
+        env = dag.get_template_env()
+        for task in dag.tasks:
+            for field in ("blueprint_step_config", "blueprint_step_code", "blueprint_dag_args"):
+                env.from_string(getattr(task, field))
+
+
 @pytest.mark.parametrize("spec_path", SPECS, ids=lambda p: p.stem)
 def test_spec_is_implemented(spec_path, dags):
     spec = yaml.safe_load(spec_path.read_text())

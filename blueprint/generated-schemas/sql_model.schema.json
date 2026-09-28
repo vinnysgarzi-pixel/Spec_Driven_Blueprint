@@ -2,7 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "conn_id": {
-      "default": "snowflake_adw",
+      "default": "snowflake",
       "title": "Conn Id",
       "type": "string"
     },
@@ -38,7 +38,7 @@
         "type": "string"
       },
       "default": {},
-      "description": "Values exposed to the SQL file as {{ params.<key> }}",
+      "description": "Values exposed to the SQL file as params.<key>",
       "title": "Params",
       "type": "object"
     },
