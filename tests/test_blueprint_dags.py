@@ -76,6 +76,9 @@ def render_sql(dag, task_id: str) -> str:
 
 
 def test_gold_sql_is_windowed_and_fully_rendered(dags):
+    task = dags["sales__oms_orders"].get_task("gold_daily_order_revenue")
+    # SQL edits must change the serialized DAG, or Airflow 3 keeps running the old bundle.
+    assert (ROOT / "include/sql/sales/daily_order_revenue.sql").read_text() in task.doc_md
     sql = render_sql(dags["sales__oms_orders"], "gold_daily_order_revenue")
     assert "{{" not in sql and "{%" not in sql
     assert "DELETE FROM ADW.GOLD_SALES.DAILY_ORDER_REVENUE WHERE ORDER_DATE >= '2026-09-27' AND ORDER_DATE < '2026-09-28'" in sql
@@ -90,4 +93,4 @@ def test_cdc_merge_is_bounded_by_interval_end(dags):
 
 def test_dev_profile_targets_dev_database():
     sql = render_sql(build("dev")["sales__oms_orders"], "gold_daily_order_revenue")
-    assert "SANDBOX.GOLD_SALES.DAILY_ORDER_REVENUE" in sql and " ADW.GOLD" not in sql
+    assert "DEMO.GOLD_SALES.DAILY_ORDER_REVENUE" in sql and " ADW.GOLD" not in sql
