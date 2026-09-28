@@ -30,7 +30,7 @@ GoldenGate → Snowflake → silver/gold architecture. Everything is code in Git
 | `specs/<domain>/*.spec.yaml` | Domain team | Input: what the pipeline must do |
 | `AGENTS.md`, `CLAUDE.md` | Platform | Agent contract: mapping rules, allowed edits, iteration loop |
 | `dags/blueprints/adw_blueprints.py` | Platform | Blueprints + the data-product DAG template |
-| `dags/blueprint.vars.yaml` | Platform | `dev`/`prod` profiles (`ADW_DEV` / `ADW`), selected by `$ADW_ENV` |
+| `dags/blueprint.vars.yaml` | Platform | `dev`/`prod` profiles (`SANDBOX` / `ADW`), selected by `$ADW_ENV` |
 | `dags/domains/<domain>/*.dag.yaml` | Generated | Implementation: Blueprint steps + dependencies |
 | `include/sql/<domain>/*.sql` | Generated | Gold `SELECT` models |
 | `tests/` | Platform | Build, convention, spec-coverage and rendered-SQL tests |
@@ -83,12 +83,19 @@ The integration does **not** run tests, so run the validation commands above (or
 ## Run against Snowflake
 
 - **Connection `snowflake`:** comes from the Astro Environment Manager (Sandbox workspace, auto-linked to the deployment).
-- **`ADW_ENV`:** `dev` (default, uses `ADW_DEV`) or `prod` (uses `ADW`).
+- **`ADW_ENV`:** `dev` (default, uses `SANDBOX`) or `prod` (uses `ADW`).
 - **Tables:** reads `<db>.RAW_OMS.ORDERS` and `<db>.REF_FINANCE.FX_DAILY_RATES`; creates and writes `SILVER_OMS`, `GOLD_SALES` and `GOLD_FINANCE` tables.
 - **Raw shape:** business columns plus `OP_TYPE` (I/U/D), `OP_TS` (UTC commit time) and `POS` (tiebreak).
 - **Freshness sensor:** `orders_landed` waits until `MAX(OP_TS)` passes the end of the run window.
 
-New DAGs arrive **paused** on Astro; unpause them when the tables exist.
+New DAGs arrive **paused** on Astro.
+
+**Run the demo end to end (dev only):**
+1. Trigger `demo__seed_raw_oms`. It creates the schemas in `SANDBOX`, generates ~500 GoldenGate-style orders (I/U/D rows over the last 3 days, replicated up to "now"), loads FX rates, and drops silver and gold for a clean start.
+2. Trigger `sales__oms_orders`. It fills `SILVER_OMS.ORDERS` and yesterday's `GOLD_SALES.DAILY_ORDER_REVENUE`.
+3. `finance__revenue_usd` starts on its own when the Sales gold Asset is published (unpause it first).
+
+The seed DAG is not defined when `ADW_ENV=prod`, because it drops tables.
 
 ## Extending
 

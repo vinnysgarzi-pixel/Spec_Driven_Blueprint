@@ -41,7 +41,7 @@ Never invent a config field; `describe` is authoritative. Step configs forbid un
 
 Other rules:
 
-- Table names: always `${adw_db}.<SCHEMA>.<TABLE>`, where spec names are `SCHEMA.TABLE`. Never hard-code the database; the profile picks `ADW` or `ADW_DEV`.
+- Table names: always `${adw_db}.<SCHEMA>.<TABLE>`, where spec names are `SCHEMA.TABLE`. Never hard-code the database; the profile picks the database (`ADW` in prod).
 - Connection: `conn_id: ${snowflake_conn_id}` on every step.
 - `consumes` lists only tables **published by another DAG** (they are Airflow Assets). Reference tables that nothing in Airflow publishes (for example FX rates) are read in SQL only.
 - Wire steps with `depends_on`. The order is always: landed -> merge -> silver quality -> gold model -> gold quality.

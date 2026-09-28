@@ -90,4 +90,4 @@ def test_cdc_merge_is_bounded_by_interval_end(dags):
 
 def test_dev_profile_targets_dev_database():
     sql = render_sql(build("dev")["sales__oms_orders"], "gold_daily_order_revenue")
-    assert "ADW_DEV.GOLD_SALES.DAILY_ORDER_REVENUE" in sql and " ADW.GOLD" not in sql
+    assert "SANDBOX.GOLD_SALES.DAILY_ORDER_REVENUE" in sql and " ADW.GOLD" not in sql
