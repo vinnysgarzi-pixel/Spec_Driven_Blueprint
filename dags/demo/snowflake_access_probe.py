@@ -18,6 +18,7 @@ CONN_ID = yaml.safe_load((Path(__file__).parents[1] / "blueprint.vars.yaml").rea
 def snowflake_access_probe():
     @task(retries=0)
     def probe() -> dict:
+        """List databases/schemas where the connection's roles can create ADW objects."""
         from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
         from snowflake.connector import DictCursor
 
