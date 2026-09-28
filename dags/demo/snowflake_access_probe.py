@@ -33,6 +33,7 @@ def snowflake_access_probe():
                     return []
 
             ctx = q("SELECT CURRENT_USER() AS U, CURRENT_ROLE() AS R, CURRENT_DATABASE() AS D, CURRENT_SCHEMA() AS S")[0]
+            print(f"session: {ctx}")
 
             def effective(role: str) -> dict:
                 seen, todo, grants = [], [role], []
@@ -48,22 +49,22 @@ def snowflake_access_probe():
                 return {
                     "inherits": seen[1:],
                     "can_create_schema_in": sorted(
-                        {g["name"] for g in grants if g["granted_on"] == "DATABASE" and g["privilege"] in ("CREATE SCHEMA", "OWNERSHIP")}
+                        {g["name"] for g in grants if g["name"] and g["granted_on"] == "DATABASE" and g["privilege"] in ("CREATE SCHEMA", "OWNERSHIP")}
                     ),
                     "can_create_table_in": sorted(
-                        {g["name"] for g in grants if g["granted_on"] == "SCHEMA" and g["privilege"] in ("CREATE TABLE", "OWNERSHIP")}
+                        {g["name"] for g in grants if g["name"] and g["granted_on"] == "SCHEMA" and g["privilege"] in ("CREATE TABLE", "OWNERSHIP")}
                     ),
                 }
 
-            user_roles = sorted({g["role"] for g in q(f'SHOW GRANTS TO USER "{ctx["U"]}"')})
+            user_roles = sorted({g["role"] for g in q(f'SHOW GRANTS TO USER "{ctx["U"]}"') if g.get("role")})
             report = {
                 "user": ctx["U"],
                 "primary_role": ctx["R"],
                 "default_database": ctx["D"],
                 "default_schema": ctx["S"],
-                "visible_databases": sorted(d["name"] for d in q("SHOW DATABASES")),
+                "visible_databases": sorted(d["name"] for d in q("SHOW DATABASES") if d.get("name")),
                 "roles_granted_to_user": user_roles,
-                "by_role": {r: effective(r) for r in sorted({ctx["R"], *user_roles})},
+                "by_role": {r: effective(r) for r in sorted({ctx["R"], *user_roles} - {None})},
             }
         for k, v in report.items():
             print(f"{k}: {v}")
