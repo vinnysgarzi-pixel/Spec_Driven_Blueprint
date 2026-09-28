@@ -6,3 +6,6 @@ logs/
 .venv
 airflow.db
 airflow.cfg
+.astro/standalone/
+.astro/config.local.*
+**/__pycache__/
