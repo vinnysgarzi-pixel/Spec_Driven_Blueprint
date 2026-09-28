@@ -12,7 +12,7 @@ Follow this file exactly; it is the same contract for Codex, Claude Code, and hu
 | `dags/blueprints/` | Platform team | **No.** If a spec can't be expressed with existing Blueprints, stop and report the gap. |
 | `dags/blueprint.vars.yaml` | Platform team | No |
 | `dags/domains/<domain>/<product>.dag.yaml` | Generated | **Yes**: this is your output |
-| `include/sql/<domain>/<model>.sql` | Generated | **Yes**: this is your output |
+| `dags/sql/<domain>/<model>.sql` | Generated | **Yes**: this is your output |
 | `tests/` | Platform team | No (run them) |
 
 ## Discover the building blocks first
@@ -35,7 +35,7 @@ Never invent a config field; `describe` is authoritative. Step configs forbid un
 | `source.freshness` | `goldengate_landed` step on the raw table, `timeout_minutes` from the SLA |
 | `source.tables[*]` + a silver output | `cdc_merge_to_silver` step: `business_key` -> `primary_key`; `change_tracking` -> `op_type_column` / `op_ts_column` / `tiebreak_column`; `late_arriving_changes` -> `lookback_minutes` |
 | `quality` bullets on any output | `quality_gate` step on that table, placed **before** anything that reads the table. Map: never null -> `not_null`; unique -> `unique`; "one of" -> `accepted_values`; "never negative" -> `min_values: {COL: 0}`; anything else -> `row_checks` |
-| gold output with metrics | write `include/sql/<domain>/<table_lower>.sql` + `sql_model` step |
+| gold output with metrics | write `dags/sql/<domain>/<table_lower>.sql` + `sql_model` step |
 | "processing the previous day" / re-runnable by day | `strategy: delete_insert`, `partition_column` = the date column |
 | "trailing N days, fully rebuilt" | `strategy: replace` |
 
@@ -46,7 +46,7 @@ Other rules:
 - `consumes` lists only tables **published by another DAG** (they are Airflow Assets). Reference tables that nothing in Airflow publishes (for example FX rates) are read in SQL only.
 - Wire steps with `depends_on`. The order is always: landed -> merge -> silver quality -> gold model -> gold quality.
 
-## SQL model rules (`include/sql/**`)
+## SQL model rules (`dags/sql/**`)
 
 - A single `SELECT`. No DDL/DML; the `sql_model` Blueprint materializes it.
 - Reference tables only through `{{ params.<name> }}` and pass them via the step's `params:` (so `${adw_db}` resolves per environment).

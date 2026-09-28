@@ -13,7 +13,7 @@
       "type": "string"
     },
     "sql_file": {
-      "description": "SELECT statement, relative to include/sql/",
+      "description": "SELECT statement, relative to dags/sql/",
       "pattern": "^[a-z0-9_/]+\\.sql$",
       "title": "Sql File",
       "type": "string"

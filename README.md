@@ -8,7 +8,7 @@ GoldenGate → Snowflake → silver/gold architecture. Everything is code in Git
           │  Codex / Claude Code, governed by AGENTS.md
           ▼
  dags/domains/sales/oms_orders.dag.yaml      HOW   - generated: Blueprint steps + wiring
- include/sql/sales/daily_order_revenue.sql         - generated: gold business logic
+ dags/sql/sales/daily_order_revenue.sql         - generated: gold business logic
           │  lint + tests → PR → merge to main
           ▼
  Astro deployment "AH Blueprint"             RUN   - auto-deployed by the Astro GitHub integration
@@ -32,7 +32,7 @@ GoldenGate → Snowflake → silver/gold architecture. Everything is code in Git
 | `dags/blueprints/adw_blueprints.py` | Platform | Blueprints + the data-product DAG template |
 | `dags/blueprint.vars.yaml` | Platform | `dev`/`prod` profiles (`DEMO` / `ADW`), selected by `$ADW_ENV` |
 | `dags/domains/<domain>/*.dag.yaml` | Generated | Implementation: Blueprint steps + dependencies |
-| `include/sql/<domain>/*.sql` | Generated | Gold `SELECT` models |
+| `dags/sql/<domain>/*.sql` | Generated | Gold `SELECT` models |
 | `tests/` | Platform | Build, convention, spec-coverage and rendered-SQL tests |
 
 | Blueprint | Does |

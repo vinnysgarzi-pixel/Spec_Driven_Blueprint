@@ -61,7 +61,8 @@ def jinja_include(path: str) -> str:
     return "{" + f"% include '{path}' %" + "}"
 
 
-SQL_ROOT = Path(__file__).resolve().parents[2] / "include" / "sql"
+# SQL lives under dags/ so it ships in the versioned DAG bundle; include/ is not part of it on Astro.
+SQL_ROOT = Path(__file__).resolve().parents[1] / "sql"
 DEFAULT_CONN_ID = "snowflake"
 
 
@@ -327,7 +328,7 @@ class SqlModelConfig(BaseModel):
     conn_id: str = DEFAULT_CONN_ID
     target_table: TableFqn
     sql_file: str = Field(
-        pattern=r"^[a-z0-9_/]+\.sql$", description="SELECT statement, relative to include/sql/"
+        pattern=r"^[a-z0-9_/]+\.sql$", description="SELECT statement, relative to dags/sql/"
     )
     strategy: Literal["replace", "delete_insert"] = Field(
         default="delete_insert",
@@ -348,7 +349,7 @@ class SqlModelConfig(BaseModel):
 
 
 class SqlModel(Blueprint[SqlModelConfig]):
-    """Runs a SELECT from include/sql and materializes it transactionally; publishes the target as an Asset."""
+    """Runs a SELECT from dags/sql and materializes it transactionally; publishes the target as an Asset."""
 
     def render(self, config: SqlModelConfig) -> SQLExecuteQueryOperator:
         c = config
