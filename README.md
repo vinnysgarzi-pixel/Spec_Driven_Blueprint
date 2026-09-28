@@ -1,197 +1,104 @@
 # ADW spec-driven pipelines with Blueprint
 
-A small, end-to-end example of **spec → agent-generated implementation → runnable Airflow workflow**
-for a GoldenGate → Snowflake → silver/gold architecture, orchestrated by Astronomer.
-
-Everything is code, lives in Git, and flows through a PR. There is no UI or drag-and-drop step.
+A small, end-to-end example of **spec → agent-generated implementation → Airflow on Astro** for a
+GoldenGate → Snowflake → silver/gold architecture. Everything is code in Git; merging to `main` deploys it.
 
 ```
  specs/sales/oms_orders.spec.yaml            WHAT  - written by an engineer or analyst
-          │
           │  Codex / Claude Code, governed by AGENTS.md
           ▼
- dags/domains/sales/oms_orders.dag.yaml      HOW   - generated: which Blueprints, wired how
+ dags/domains/sales/oms_orders.dag.yaml      HOW   - generated: Blueprint steps + wiring
  include/sql/sales/daily_order_revenue.sql         - generated: gold business logic
-          │
-          │  blueprint lint → pytest → af dags errors → PR → astro deploy
+          │  lint + tests → PR → merge to main
           ▼
- Airflow DAG sales__oms_orders               RUN   - built at parse time from platform Blueprints
+ Astro deployment "AH Blueprint"             RUN   - auto-deployed by the Astro GitHub integration
 ```
 
----
+## What it proves
 
-## What this proves
+- **Familiar architecture.** Oracle OMS → GoldenGate (I/U/D change rows) → Snowflake `RAW_OMS` → current-state `SILVER_OMS` → `GOLD_SALES` mart, orchestrated by Astronomer.
+- **A repeatable unit.** Four platform Blueprints cover the whole flow; every other GoldenGate table reuses them.
+- **Specs in business language.** `specs/**.spec.yaml` holds keys, freshness SLA, quality rules and metric definitions. There is no Airflow vocabulary.
+- **Agent-generated, reviewable code.** `AGENTS.md` (Claude Code reads it via `CLAUDE.md`) maps spec → Blueprints, limits what the agent may edit, and defines the lint/test loop it iterates on.
+- **Safe to merge.** Typos, SQL-injection attempts and contradictory settings fail at lint time. Tests check that every spec output is produced and that the rendered SQL is windowed correctly.
+- **Ready for a data mesh.** Finance's DAG runs when Sales *publishes* its gold table (an Airflow Asset). It never touches Sales' DAG or silver tables.
 
-| Question | How the project answers it |
-|---|---|
-| **Does it fit our architecture?** | Oracle OMS → GoldenGate (audit-log mode: one row per I/U/D with `OP_TYPE`, `OP_TS`, `POS`) → Snowflake `RAW_OMS` → current-state `SILVER_OMS` → `GOLD_SALES` mart, with Astronomer orchestrating. |
-| **Is it a repeatable pattern, not a one-off?** | One source table, one CDC merge, quality gates, one gold aggregate. Every other GoldenGate table follows the same four Blueprints. |
-| **What does a Blueprint look like, and what inputs does it need?** | `dags/blueprints/adw_blueprints.py`: four typed, validated building blocks plus a DAG-level "data product" template. `blueprint describe <name>` lists every input. |
-| **What does the spec look like?** | `specs/sales/oms_orders.spec.yaml`: keys, CDC columns, freshness SLA, quality rules as sentences, metric definitions, cadence. No Airflow vocabulary. |
-| **Can Codex / Claude generate the implementation from the spec?** | `AGENTS.md` (Claude Code reads it via `CLAUDE.md`) sets which files the agent may edit, a spec → Blueprint mapping table, and a lint/test loop the agent iterates on until green. |
-| **What is the output, and how does it run?** | ~60 lines of YAML plus one SQL file per data product. They become real Airflow DAGs with sensors, idempotent merges, quality gates and Asset-based hand-offs. |
-| **Can multiple teams build on shared raw data (data mesh)?** | Finance has its own spec and DAG that runs when Sales *publishes* its gold table (an Airflow Asset). Finance never needs Sales' DAG, schedule, or silver tables. |
-
-### Guardrails that make agent-generated code safe to merge
-
-All of these fail at lint or parse time, before anything touches Snowflake:
-
-- **Unknown or misspelled keys are rejected.** `primary_keys:` fails with `Extra inputs are not permitted` and `primary_key: Field required`, so the agent knows exactly what to fix.
-- **Identifiers and table names are pattern-checked**, so YAML can't inject SQL (`ORDER_ID; DROP TABLE x` is rejected).
-- **Contradictory settings are rejected**, for example `schedule` plus `consumes`, or `delete_insert` without a `partition_column`.
-- **Tests enforce spec traceability.** Every output table in a spec must be published by the DAG named `<domain>__<data_product>`.
-- **The rendered SQL is tested** for a sample day. The gold model rewrites exactly that day, and the `dev` profile targets `ADW_DEV`.
-- **Correct windows.** Airflow 3's default cron timetable produces zero-length data intervals. The DAG template uses `CronDataIntervalTimetable`, so "process the previous day" means the previous day.
-
----
-
-## Repository layout
+## Layout
 
 | Path | Owner | Purpose |
 |---|---|---|
-| `specs/<domain>/<product>.spec.yaml` | Domain team | The input: what the pipeline must do |
-| `AGENTS.md`, `CLAUDE.md` | Platform team | The agent contract: mapping rules, allowed edits, iteration loop |
-| `dags/blueprints/adw_blueprints.py` | Platform team | The Blueprints and the `DataProductDagArgs` DAG template |
-| `dags/blueprint.vars.yaml` | Platform team | Shared variables with `dev` / `prod` profiles (`${adw_db}`, `${snowflake_conn_id}`) |
-| `dags/loader.py` | Platform team | Builds every `*.dag.yaml` into a DAG using profile `$ADW_ENV` |
-| `dags/domains/<domain>/*.dag.yaml` | Generated | The implementation: Blueprint steps and dependencies |
+| `specs/<domain>/*.spec.yaml` | Domain team | Input: what the pipeline must do |
+| `AGENTS.md`, `CLAUDE.md` | Platform | Agent contract: mapping rules, allowed edits, iteration loop |
+| `dags/blueprints/adw_blueprints.py` | Platform | Blueprints + the data-product DAG template |
+| `dags/blueprint.vars.yaml` | Platform | `dev`/`prod` profiles (`ADW_DEV` / `ADW`), selected by `$ADW_ENV` |
+| `dags/domains/<domain>/*.dag.yaml` | Generated | Implementation: Blueprint steps + dependencies |
 | `include/sql/<domain>/*.sql` | Generated | Gold `SELECT` models |
-| `tests/test_blueprint_dags.py` | Platform team | Build, convention, spec-coverage and rendered-SQL tests |
-| `blueprint/generated-schemas/` | Generated by CLI | JSON Schemas for each Blueprint (editor autocomplete, Astro IDE, agents) |
+| `tests/` | Platform | Build, convention, spec-coverage and rendered-SQL tests |
 
-### The Blueprints
-
-| Blueprint | Renders | Key inputs |
-|---|---|---|
-| `goldengate_landed` | Reschedule-mode `SqlSensor`: waits until `MAX(OP_TS) >= data_interval_end` | `raw_table`, `timeout_minutes` |
-| `cdc_merge_to_silver` | `ensure_target` plus an idempotent watermark `MERGE` that applies I/U/D, deduplicated with `QUALIFY ROW_NUMBER()`; publishes an Asset | `source_table`, `target_table`, `primary_key`, `columns`, `op_type/op_ts/tiebreak_column`, `lookback_minutes` |
-| `quality_gate` | `SQLColumnCheckOperator` + `SQLTableCheckOperator` | `not_null`, `unique`, `accepted_values`, `min_values`, `row_checks`, `min_row_count` |
-| `sql_model` | Materializes a `SELECT` from `include/sql/` as `replace` or interval-scoped `delete_insert`; publishes an Asset | `target_table`, `sql_file`, `strategy`, `partition_column`, `params` |
-| DAG template (`DataProductDagArgs`) | Every DAG is a data product | `domain`, `data_product`, `owner`, `spec`, and either `schedule` + `timezone` or `consumes` |
-
-### The resulting workflows
+| Blueprint | Does |
+|---|---|
+| `goldengate_landed` | Sensor: waits until GoldenGate has replicated past the run window |
+| `cdc_merge_to_silver` | Idempotent `MERGE` of I/U/D changes into a current-state table; publishes an Asset |
+| `quality_gate` | Not-null / unique / accepted-values / min / custom row checks |
+| `sql_model` | Materializes a gold `SELECT` (`replace` or per-day `delete_insert`); publishes an Asset |
 
 ```
-sales__oms_orders     daily 06:00 America/New_York, processes the previous 24h
-  orders_landed                       wait for GoldenGate to pass the interval end (fail after 2h)
-  silver_orders.ensure_target         CREATE TABLE IF NOT EXISTS
-  silver_orders.merge_cdc             MERGE I/U/D into SILVER_OMS.ORDERS      → Asset
-  silver_orders_quality.*             not null / unique / accepted values / min
-  gold_daily_order_revenue            DELETE + INSERT that day's rows         → Asset
-  gold_daily_order_revenue_quality.*
-
+sales__oms_orders     daily 06:00 America/New_York, previous 24h
+  orders_landed → silver_orders (merge) → silver quality → gold_daily_order_revenue → gold quality
 finance__revenue_usd  runs when GOLD_SALES.DAILY_ORDER_REVENUE is published
-  gold_daily_revenue_usd              rebuild trailing 90 days in USD
-  gold_daily_revenue_usd_quality.*    fails if any currency lacks an FX rate
+  gold_daily_revenue_usd → gold quality
 ```
 
-Re-running a day gives the same result. A failed quality gate stops the run, so no bad data is published
-and Finance is never triggered. In the Airflow UI, each task's **Rendered Template** tab shows the resolved
-Blueprint config (`blueprint_step_config`) and source (`blueprint_step_code`).
+## Use it
 
----
-
-## Using the demo
-
-### 1. Explore the building blocks
-
+**Explore the building blocks**
 ```bash
-.venv/bin/blueprint list                          # Blueprints, versions, DAG template
-.venv/bin/blueprint describe cdc_merge_to_silver  # every field, type, default, constraint
+.venv/bin/blueprint list
+.venv/bin/blueprint describe cdc_merge_to_silver
 ```
 
-### 2. Validate the implementation
+**Generate a pipeline from a spec**: in Codex or Claude Code:
+> Implement `specs/sales/oms_orders.spec.yaml` following AGENTS.md. Iterate until lint, tests and
+> `af dags errors` pass. Summarize the spec → step mapping and any assumptions.
 
+To demo from scratch, delete the generated `.dag.yaml` and `.sql` first. To demo a change, edit the spec and ask the agent to update the implementation.
+
+**Validate**
 ```bash
 for f in dags/domains/*/*.dag.yaml; do .venv/bin/blueprint lint --root dags "$f"; done
 uv run --no-project --python .venv/bin/python --with pytest python -m pytest tests -q
-af dags errors
 ```
 
-Lint validates each file against both the `dev` and `prod` profiles. Pass files one at a time: a bare
-`blueprint lint` walks the whole project tree, including local Airflow log directories.
+## Deploy: push to `main`
 
-### 3. Generate a pipeline from a spec with an agent
+`main` is mapped to the **AH Blueprint** deployment (Cosmic Energy org → Sandbox workspace, AWS `us-east-1`)
+through the Astro GitHub integration. **Every commit or merged PR on `main` deploys automatically**:
 
-Open the repo in Codex or Claude Code and prompt:
+- Changes only under `dags/` → a DAG-only deploy (fast, no image build).
+- Changes to `requirements.txt`, `Dockerfile` or other project files → a full image deploy.
+- Track progress in the deployment's **Overview → Deploy History**. Git deploys show **Deployed By: GitHub App** and the commit message.
 
-> Implement `specs/sales/oms_orders.spec.yaml` following AGENTS.md. Iterate until lint, tests and
-> `af dags errors` pass. In your summary, list the spec → step mapping and any assumptions.
+The integration does **not** run tests, so run the validation commands above (or add them as a PR check) before merging.
 
-To show generation from scratch, delete `dags/domains/sales/oms_orders.dag.yaml` and
-`include/sql/sales/daily_order_revenue.sql` first. To show a change, edit the spec (for example, add
-`RETURNED` handling or a new quality rule) and ask the agent to update the implementation. The diff you
-review is YAML and SQL, not operator code.
+## Run against Snowflake
 
-### 4. Add a new data product
+- **Connection `snowflake`:** comes from the Astro Environment Manager (Sandbox workspace, auto-linked to the deployment).
+- **`ADW_ENV`:** `dev` (default, uses `ADW_DEV`) or `prod` (uses `ADW`).
+- **Tables:** reads `<db>.RAW_OMS.ORDERS` and `<db>.REF_FINANCE.FX_DAILY_RATES`; creates and writes `SILVER_OMS`, `GOLD_SALES` and `GOLD_FINANCE` tables.
+- **Raw shape:** business columns plus `OP_TYPE` (I/U/D), `OP_TS` (UTC commit time) and `POS` (tiebreak).
+- **Freshness sensor:** `orders_landed` waits until `MAX(OP_TS)` passes the end of the run window.
 
-1. Write `specs/<domain>/<product>.spec.yaml`, using the two existing specs as templates.
-2. Prompt the agent as above.
-3. Review the PR: the spec, the generated YAML/SQL, and the agent's mapping summary.
+New DAGs arrive **paused** on Astro; unpause them when the tables exist.
 
-If a spec needs something no Blueprint provides, `AGENTS.md` tells the agent to stop and report the gap.
-It must not hand-write operators. The platform team adds a Blueprint (or a `…V2` version) plus a row in the mapping table.
+## Extending
 
-### 5. Run it against Snowflake
+- **Ownership:** folders per domain (`specs/<domain>/`, `dags/domains/<domain>/`) map to CODEOWNERS.
+- **Shared raw data:** many teams build their own products from the same raw tables. Only published tables become Assets others can depend on.
+- **New patterns:** SCD2, PII masking, Iceberg and the like become a new Blueprint plus a row in `AGENTS.md`. Breaking changes ship as `…V2`, and YAML can pin `version: 1`.
+- **Many repos:** publish the Blueprints as a Python package (entry point `airflow_blueprint.blueprints`).
 
-| Requirement | Detail |
-|---|---|
-| Connection `snowflake` | Snowflake connection. On Astro it comes from the Environment Manager (Sandbox workspace, auto-linked). Locally it needs a password or key. |
-| `ADW_ENV` | `dev` (default) → database `ADW_DEV`, or `prod` → `ADW` |
-| Tables | Read access to `<db>.RAW_OMS.ORDERS` and `<db>.REF_FINANCE.FX_DAILY_RATES`; create/write access to the `SILVER_OMS`, `GOLD_SALES` and `GOLD_FINANCE` schemas (tables are created on first run) |
+## Notes
 
-Expected raw shape (as landed by GoldenGate):
-
-```sql
-CREATE TABLE ADW_DEV.RAW_OMS.ORDERS (
-    ORDER_ID NUMBER, CUSTOMER_ID NUMBER, ORDER_STATUS VARCHAR, ORDER_TS TIMESTAMP_NTZ,
-    CURRENCY VARCHAR(3), ORDER_TOTAL NUMBER(12,2), REGION_CODE VARCHAR,
-    OP_TYPE VARCHAR(1),       -- I / U / D
-    OP_TS   TIMESTAMP_NTZ,    -- commit timestamp, UTC
-    POS     VARCHAR           -- trail position, orders changes within one OP_TS
-);
-CREATE TABLE ADW_DEV.REF_FINANCE.FX_DAILY_RATES (RATE_DATE DATE, CURRENCY VARCHAR(3), USD_RATE NUMBER(18,8));
-```
-
-`orders_landed` waits until `MAX(OP_TS)` passes the end of the run's window. When you seed test data,
-include at least one change row dated after that point.
-
-### 6. Deploy
-
-This project is deployed to the **AH Blueprint** deployment (Sandbox workspace, Cosmic Energy org, AWS
-`us-east-1`, Runtime 3.1-12). New DAGs arrive paused.
-
-```bash
-astro deploy <deployment-id> --workspace-id <sandbox-workspace-id> --dags   # YAML/SQL/Blueprint changes only
-astro deploy <deployment-id> --workspace-id <sandbox-workspace-id>          # after requirements.txt / Dockerfile changes
-```
-
----
-
-## Extending to many teams (data mesh)
-
-- **Folders are ownership.** `specs/<domain>/` and `dags/domains/<domain>/` map directly to CODEOWNERS.
-  A domain can get its own DAG defaults by adding a `dag_args.py` template in its folder; Blueprint uses the
-  template closest above each YAML file.
-- **Shared raw data, domain-owned products.** Any number of teams can build their own silver and gold tables from the same `RAW_*`
-  tables with the same Blueprints. Only published tables become Assets other domains can depend on.
-- **Contracts are Assets.** Consumers declare `consumes: [<DB>.<SCHEMA>.<TABLE>]`. Across Astro
-  deployments, the same Asset can be fed through the Airflow REST API.
-- **The platform can evolve safely.** Breaking changes ship as `CdcMergeToSilverV2`, and existing YAML can pin `version: 1`.
-  Once several repos need the Blueprints, publish them as a Python package (entry point
-  `airflow_blueprint.blueprints`) instead of copying files.
-- **New patterns** (SCD2 history, PII masking, Iceberg tables) are new Blueprints plus a new mapping row in
-  `AGENTS.md`. Specs and agents pick them up with no other change.
-
----
-
-## Notes and known limitations
-
-- **Pinned providers.** `apache-airflow-providers-snowflake==6.9.1` is pinned together with Runtime 3.1-12's own
-  `common-sql` / `common-compat` versions. Newer Snowflake providers pull `common-sql` 2.x, which breaks on this Runtime.
-- **Blueprint 0.5.0 templates each Blueprint's source file.** It renders the source as Jinja for the UI, so
-  `adw_blueprints.py` must not contain literal Jinja delimiters. It builds them with `jinja()` /
-  `jinja_include()`, and a test enforces this.
-- **Validators on containers.** Blueprint 0.5.0 rejects `Annotated` constraints inside `list` / `dict` / `Optional` fields, so
-  those fields are validated with `field_validator`s instead.
-- **Timestamps are UTC.** `ORDER_TS` and `OP_TS` are assumed UTC, and gold order dates are UTC calendar days.
+- **Pinned Snowflake provider:** `apache-airflow-providers-snowflake==6.9.1`, pinned together with Runtime 3.1-12's `common-sql`/`common-compat`. Newer releases break on this Runtime.
+- **No Jinja in the Blueprint file:** Blueprint 0.5.0 renders each Blueprint's source as Jinja, so `adw_blueprints.py` builds Jinja delimiters at runtime. A test enforces this.
+- **UTC:** `ORDER_TS` and `OP_TS` are assumed UTC; gold order dates are UTC days.
