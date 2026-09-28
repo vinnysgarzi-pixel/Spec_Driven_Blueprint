@@ -1,0 +1,93 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "conn_id": {
+      "default": "snowflake_adw",
+      "title": "Conn Id",
+      "type": "string"
+    },
+    "target_table": {
+      "description": "Fully qualified Snowflake table: DATABASE.SCHEMA.TABLE",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_$]*\\.[A-Za-z_][A-Za-z0-9_$]*\\.[A-Za-z_][A-Za-z0-9_$]*$",
+      "title": "Target Table",
+      "type": "string"
+    },
+    "sql_file": {
+      "description": "SELECT statement, relative to include/sql/",
+      "pattern": "^[a-z0-9_/]+\\.sql$",
+      "title": "Sql File",
+      "type": "string"
+    },
+    "strategy": {
+      "default": "delete_insert",
+      "description": "replace: full rebuild; delete_insert: rewrite only the rows of this data interval",
+      "enum": [
+        "replace",
+        "delete_insert"
+      ],
+      "title": "Strategy",
+      "type": "string"
+    },
+    "partition_column": {
+      "type": "string",
+      "description": "Date/timestamp column scoping delete_insert to [data_interval_start, end)",
+      "title": "Partition Column"
+    },
+    "params": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "description": "Values exposed to the SQL file as {{ params.<key> }}",
+      "title": "Params",
+      "type": "object"
+    },
+    "blueprint": {
+      "type": "string",
+      "const": "sql_model",
+      "description": "The blueprint template to use"
+    },
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "The blueprint version"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Steps that must complete before this step runs",
+      "default": []
+    },
+    "trigger_rule": {
+      "type": "string",
+      "enum": [
+        "all_done",
+        "all_done_min_one_success",
+        "all_done_setup_success",
+        "all_failed",
+        "all_skipped",
+        "all_success",
+        "always",
+        "none_failed",
+        "none_failed_min_one_success",
+        "none_skipped",
+        "one_done",
+        "one_failed",
+        "one_success"
+      ],
+      "description": "Trigger rule for this step (default: all_success)"
+    }
+  },
+  "required": [
+    "blueprint",
+    "version",
+    "target_table",
+    "sql_file"
+  ],
+  "title": "sql_model",
+  "type": "object",
+  "templateType": "blueprint",
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,28 @@
+# Generated from specs/finance/revenue_usd.spec.yaml per AGENTS.md. Edit the spec, then regenerate.
+dag_id: finance__revenue_usd
+domain: finance
+data_product: revenue_usd
+owner: finance-data-eng
+spec: specs/finance/revenue_usd.spec.yaml
+description: USD-normalised daily revenue built on the Sales domain's published DAILY_ORDER_REVENUE.
+consumes:
+  - ${adw_db}.GOLD_SALES.DAILY_ORDER_REVENUE
+
+steps:
+  gold_daily_revenue_usd:
+    blueprint: sql_model
+    conn_id: ${snowflake_conn_id}
+    target_table: ${adw_db}.GOLD_FINANCE.DAILY_REVENUE_USD
+    sql_file: finance/daily_revenue_usd.sql
+    strategy: replace
+    params:
+      daily_order_revenue: ${adw_db}.GOLD_SALES.DAILY_ORDER_REVENUE
+      fx_daily_rates: ${adw_db}.REF_FINANCE.FX_DAILY_RATES
+
+  gold_daily_revenue_usd_quality:
+    blueprint: quality_gate
+    depends_on: [gold_daily_revenue_usd]
+    conn_id: ${snowflake_conn_id}
+    table: ${adw_db}.GOLD_FINANCE.DAILY_REVENUE_USD
+    min_row_count: 0
+    not_null: [GROSS_REVENUE_USD]
