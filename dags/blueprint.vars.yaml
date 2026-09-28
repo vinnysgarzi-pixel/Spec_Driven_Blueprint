@@ -4,4 +4,4 @@ vars:
   adw_db:
     dev: ADW_DEV
     prod: ADW
-  snowflake_conn_id: snowflake_adw
+  snowflake_conn_id: snowflake
