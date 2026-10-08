@@ -1,0 +1,48 @@
+# Data product spec: the only file a requesting engineer/analyst writes.
+# It describes WHAT (sources, keys, outputs, rules, SLAs) in business terms.
+# The coding agent turns it into HOW (Blueprint YAML + SQL) per AGENTS.md.
+spec_version: 1
+data_product: oms_customers
+domain: sales
+owner: sales-data-eng
+summary: >
+  Curated current-state view of Oracle OMS customers, plus a daily mart of
+  new customer sign-ups by region and segment for Sales leadership.
+
+source:
+  system: Oracle OMS
+  replication: GoldenGate -> Snowflake RAW, audit-log mode (one row per change)
+  tables:
+    - name: RAW_OMS.CUSTOMERS
+      business_key: [CUSTOMER_ID]
+      change_tracking:
+        operation_column: OP_TYPE      # I / U / D
+        commit_ts_column: OP_TS        # UTC
+        sequence_column: POS           # breaks ties within a commit timestamp
+      columns: [EMAIL, FULL_NAME, SEGMENT, REGION_CODE, STATUS, SIGNUP_TS]
+  freshness: Fail the run if GoldenGate has not replicated through the end of the processing window within 2 hours.
+
+outputs:
+  silver:
+    - table: SILVER_OMS.CUSTOMERS
+      description: One row per customer, latest state. Customers hard-deleted in OMS are removed.
+      late_arriving_changes: tolerate up to 60 minutes
+      quality:
+        - CUSTOMER_ID is never null and is unique
+        - EMAIL and SIGNUP_TS are never null
+        - SEGMENT is one of CONSUMER, SMB, ENTERPRISE
+        - STATUS is one of ACTIVE, SUSPENDED, CLOSED
+
+  gold:
+    - table: GOLD_SALES.DAILY_NEW_CUSTOMERS
+      grain: one row per sign-up date (from SIGNUP_TS, UTC) x REGION_CODE x SEGMENT
+      metrics:
+        NEW_CUSTOMERS: number of customers who signed up that day
+        ACTIVE_CUSTOMERS: of those, how many are currently ACTIVE
+      quality:
+        - SIGNUP_DATE, REGION_CODE and SEGMENT are never null
+        - NEW_CUSTOMERS is never negative
+
+schedule:
+  cadence: daily at 06:00 America/New_York, processing the previous day
+  reprocessing: re-running a day must produce the same result
