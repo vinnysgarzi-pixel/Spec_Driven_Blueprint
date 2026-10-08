@@ -1,0 +1,62 @@
+# Generated from specs/sales/oms_customers.spec.yaml per AGENTS.md. Edit the spec, then regenerate.
+dag_id: sales__oms_customers
+domain: sales
+data_product: oms_customers
+owner: sales-data-eng
+spec: specs/sales/oms_customers.spec.yaml
+description: Curated current-state Oracle OMS customers and a daily new-customer mart by region and segment.
+schedule: "0 6 * * *"
+timezone: America/New_York
+
+steps:
+  customers_landed:
+    blueprint: goldengate_landed
+    conn_id: ${snowflake_conn_id}
+    raw_table: ${adw_db}.RAW_OMS.CUSTOMERS
+    op_ts_column: OP_TS
+    timeout_minutes: 120
+
+  silver_customers:
+    blueprint: cdc_merge_to_silver
+    depends_on: [customers_landed]
+    conn_id: ${snowflake_conn_id}
+    source_table: ${adw_db}.RAW_OMS.CUSTOMERS
+    target_table: ${adw_db}.SILVER_OMS.CUSTOMERS
+    primary_key: [CUSTOMER_ID]
+    columns: [EMAIL, FULL_NAME, SEGMENT, REGION_CODE, STATUS, SIGNUP_TS]
+    op_type_column: OP_TYPE
+    op_ts_column: OP_TS
+    tiebreak_column: POS
+    lookback_minutes: 60
+
+  silver_customers_quality:
+    blueprint: quality_gate
+    depends_on: [silver_customers]
+    conn_id: ${snowflake_conn_id}
+    table: ${adw_db}.SILVER_OMS.CUSTOMERS
+    not_null: [CUSTOMER_ID, EMAIL, SIGNUP_TS]
+    unique: [CUSTOMER_ID]
+    accepted_values:
+      SEGMENT: [CONSUMER, SMB, ENTERPRISE]
+      STATUS: [ACTIVE, SUSPENDED, CLOSED]
+
+  gold_daily_new_customers:
+    blueprint: sql_model
+    depends_on: [silver_customers_quality]
+    conn_id: ${snowflake_conn_id}
+    target_table: ${adw_db}.GOLD_SALES.DAILY_NEW_CUSTOMERS
+    sql_file: sales/daily_new_customers.sql
+    strategy: delete_insert
+    partition_column: SIGNUP_DATE
+    params:
+      silver_customers: ${adw_db}.SILVER_OMS.CUSTOMERS
+
+  gold_daily_new_customers_quality:
+    blueprint: quality_gate
+    depends_on: [gold_daily_new_customers]
+    conn_id: ${snowflake_conn_id}
+    table: ${adw_db}.GOLD_SALES.DAILY_NEW_CUSTOMERS
+    min_row_count: 0
+    not_null: [SIGNUP_DATE, REGION_CODE, SEGMENT]
+    min_values:
+      NEW_CUSTOMERS: 0

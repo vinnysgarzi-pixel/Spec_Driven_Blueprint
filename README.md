@@ -76,10 +76,12 @@ Guardrails catch these at lint or parse time, before Snowflake is touched:
 | `dags/sql/finance/daily_revenue_usd.sql` | Trailing 90 days in USD; a missing FX rate yields NULL, which the quality gate catches |
 
 ### Demo helpers (dev only, not part of the pattern)
-| DAG | What it does |
+| Item | What it does |
 |---|---|
-| `demo__seed_raw_oms` | Creates the schemas in `DEMO`, generates ~500 GoldenGate-style orders (I/U/D over the last 3 days, replicated up to "now"), loads FX rates, and drops silver and gold for a clean run. Not defined when `ADW_ENV=prod`. |
-| `demo__snowflake_access_probe` | Read-only: reports where the Snowflake connection's role can create schemas and tables. It found `DEMO` (via `DEMO_WRITE_ALL`). |
+| `demo__seed_raw_oms` (DAG) | Creates the schemas in `DEMO`, generates GoldenGate-style `RAW_OMS.ORDERS` (~500 orders) and `RAW_OMS.CUSTOMERS` (~1,000 customers) as I/U/D changes over the last 3 days, replicated up to "now". Loads FX rates and drops silver and gold for a clean run. Not defined when `ADW_ENV=prod`. |
+| `demo__snowflake_access_probe` (DAG) | Read-only: reports where the Snowflake connection's role can create schemas and tables. It found `DEMO` (via `DEMO_WRITE_ALL`). |
+| `demo/oms_customers.spec.yaml` | A new spec, not yet implemented, for the live "build a new pipeline" demo. Copy it into `specs/sales/` on stage and ask the agent to build it. |
+| `demo/reference/` | A known-good implementation of that spec, as a fallback if the agent stalls. |
 
 ---
 
@@ -91,9 +93,9 @@ Guardrails catch these at lint or parse time, before Snowflake is touched:
 .venv/bin/blueprint describe cdc_merge_to_silver
 ```
 
-**Generate or change a pipeline with an agent.** In Codex or Claude Code:
-> Implement `specs/sales/oms_orders.spec.yaml` following AGENTS.md. Iterate until lint, tests and
-> `af dags errors` pass. Summarize the spec → step mapping and any assumptions.
+**Generate a new pipeline with an agent.** Start Codex or Claude Code in the repo; both load `AGENTS.md` automatically.
+Add a spec under `specs/` (for example, copy `demo/oms_customers.spec.yaml` to `specs/sales/`) and ask in plain English:
+> I've added a new spec for OMS customers. Build the pipeline for it and make sure all the checks pass.
 
 **Validate** (the same loop the agent runs)
 ```bash

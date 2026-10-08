@@ -1,10 +1,10 @@
 """Demo-only: seed GoldenGate-style raw data so the ADW pipelines can run end to end.
 
-Creates the ADW schemas in the dev database, (re)generates RAW_OMS.ORDERS as a
-GoldenGate audit log (I/U/D rows with OP_TYPE / OP_TS / POS) spanning the last
-three days up to "now", loads FX rates, and drops silver/gold so the next
-sales__oms_orders run starts clean. Trigger it manually, then trigger
-sales__oms_orders.
+Creates the ADW schemas in the dev database, (re)generates RAW_OMS.ORDERS and
+RAW_OMS.CUSTOMERS as GoldenGate audit logs (I/U/D rows with OP_TYPE / OP_TS / POS)
+spanning the last three days up to "now", loads FX rates, and drops silver/gold
+so the next pipeline runs start clean. Trigger it manually, then trigger
+sales__oms_orders (and sales__oms_customers once it exists).
 
 Never defined under the prod profile, because it drops tables.
 """
@@ -26,6 +26,8 @@ SEED_SQL = [
     f"DROP TABLE IF EXISTS {DB}.GOLD_FINANCE.DAILY_REVENUE_USD",
     f"DROP TABLE IF EXISTS {DB}.GOLD_SALES.DAILY_ORDER_REVENUE",
     f"DROP TABLE IF EXISTS {DB}.SILVER_OMS.ORDERS",
+    f"DROP TABLE IF EXISTS {DB}.GOLD_SALES.DAILY_NEW_CUSTOMERS",
+    f"DROP TABLE IF EXISTS {DB}.SILVER_OMS.CUSTOMERS",
     f"""
 CREATE OR REPLACE TABLE {DB}.RAW_OMS.ORDERS (
     ORDER_ID NUMBER, CUSTOMER_ID NUMBER, ORDER_STATUS VARCHAR, ORDER_TS TIMESTAMP_NTZ,
@@ -77,6 +79,49 @@ CROSS JOIN (
     SELECT column1 AS CURRENCY, column2::NUMBER(18, 8) AS USD_RATE
     FROM VALUES ('USD', 1), ('EUR', 1.08), ('GBP', 1.27)
 ) c
+""",
+    # Customers (for the live "build a new pipeline" demo; see demo/oms_customers.spec.yaml)
+    f"""
+CREATE OR REPLACE TABLE {DB}.RAW_OMS.CUSTOMERS (
+    CUSTOMER_ID NUMBER, EMAIL VARCHAR, FULL_NAME VARCHAR, SEGMENT VARCHAR, REGION_CODE VARCHAR,
+    STATUS VARCHAR, SIGNUP_TS TIMESTAMP_NTZ,
+    OP_TYPE VARCHAR(1), OP_TS TIMESTAMP_NTZ, POS VARCHAR
+)""",
+    f"""
+INSERT INTO {DB}.RAW_OMS.CUSTOMERS
+    (CUSTOMER_ID, EMAIL, FULL_NAME, SEGMENT, REGION_CODE, STATUS, SIGNUP_TS, OP_TYPE, OP_TS, POS)
+WITH now_utc AS (
+    SELECT CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())::TIMESTAMP_NTZ AS TS
+),
+base AS (
+    SELECT
+        SEQ4() + 1000                                                                       AS CUSTOMER_ID,
+        'customer' || (SEQ4() + 1000) || '@example.com'                                     AS EMAIL,
+        'Customer ' || (SEQ4() + 1000)                                                      AS FULL_NAME,
+        ARRAY_CONSTRUCT('CONSUMER', 'CONSUMER', 'SMB', 'ENTERPRISE')[UNIFORM(0, 3, RANDOM(21))]::VARCHAR AS SEGMENT,
+        ARRAY_CONSTRUCT('NA', 'EMEA', 'APAC')[UNIFORM(0, 2, RANDOM(22))]::VARCHAR           AS REGION_CODE,
+        DATEADD('minute', -UNIFORM(90, 4320, RANDOM(23)), n.TS)                             AS SIGNUP_TS,
+        UNIFORM(1, 100, RANDOM(24))                                                         AS FATE,
+        n.TS                                                                                AS NOW_TS
+    FROM TABLE(GENERATOR(ROWCOUNT => 1000)) CROSS JOIN now_utc n
+)
+-- insert: every customer signs up ACTIVE
+SELECT CUSTOMER_ID, EMAIL, FULL_NAME, SEGMENT, REGION_CODE, 'ACTIVE', SIGNUP_TS, 'I', SIGNUP_TS, '1'
+FROM base
+UNION ALL
+-- update: some are later suspended or closed
+SELECT CUSTOMER_ID, EMAIL, FULL_NAME, SEGMENT, REGION_CODE,
+       CASE WHEN FATE <= 8 THEN 'CLOSED' ELSE 'SUSPENDED' END,
+       SIGNUP_TS, 'U', LEAST(DATEADD('minute', 45, SIGNUP_TS), NOW_TS), '2'
+FROM base WHERE FATE <= 20
+UNION ALL
+-- delete: a few are hard-deleted in OMS
+SELECT CUSTOMER_ID, EMAIL, FULL_NAME, SEGMENT, REGION_CODE, 'ACTIVE', SIGNUP_TS, 'D', LEAST(DATEADD('minute', 60, SIGNUP_TS), NOW_TS), '3'
+FROM base WHERE FATE > 98
+UNION ALL
+-- replication heartbeat: GoldenGate is current as of seed time
+SELECT CUSTOMER_ID, EMAIL, FULL_NAME, SEGMENT, REGION_CODE, 'ACTIVE', SIGNUP_TS, 'U', NOW_TS, '9'
+FROM base WHERE CUSTOMER_ID = 1000
 """,
 ]
 
